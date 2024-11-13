@@ -15,6 +15,7 @@ using namespace std;
 #define EXIT_CODE 44
 
 char hostname[32];
+char myenv[LINE_SIZE];
 char pwd[LINE_SIZE];
 int lastCode = 0; 
 extern char **environ;
@@ -103,8 +104,6 @@ void NormalExcute(char *argv[])
         }
         else if(id == 0){
             // 子进程
-
-            
             execvpe(argv[0], argv, environ);
             // 进程代码替换失败
             exit(EXIT_CODE);
@@ -121,7 +120,8 @@ void NormalExcute(char *argv[])
         }
 }
 
-int BuildCommand(char* argv[], int argc)
+// 内建命令由自己完成，不是进程
+int BuildCommand(char* argv[], int& argc)
 {
     if(argc == 2 && strcmp(argv[0], "cd") == 0){
         chdir(argv[1]);
@@ -129,11 +129,34 @@ int BuildCommand(char* argv[], int argc)
         sprintf(getenv("PWD"), "%s", pwd);
         return 1;
     }
-    if(strcmp(argv[0], "ls") == 0){
-        argv[++argc] = "--color";
-        argv[argc] = NULL;
-
+    else if(argc == 2 && strcmp(argv[0], "export") == 0){
+        // putenv是将指针指向argv而不是拷贝，所以这里需要先拷贝
+        strcpy(myenv, argv[1]);
+        putenv(myenv);
+        return 1;
     }
+    else if(argc == 2 && strcmp(argv[0], "echo") == 0)
+    {
+        if(*argv[1] == '$'){
+            if(*(argv[1]+1) == '?') {
+                printf("%d\n", lastCode);
+                return 1;
+            }
+            char* env = getenv(argv[1]+1);
+            if(env) printf("%s\n", env);
+            else printf("\n");
+        }
+        else{
+            printf("%s\n", argv[1]);
+        }
+        return 1;
+    }
+    if(strcmp(argv[0], "ls") == 0){
+        argv[argc++] = "--color";
+        argv[argc] = NULL;
+        return 2;
+    }
+    
     return -1;
     
 }
@@ -153,12 +176,12 @@ int main()
         int argc = splitString(commandline, argv);
         if(argc == 0) continue;
 
-        // 内建命令pwd
-        BuildCommand(argv, argc);
+        // 内建命令
+        lastCode = BuildCommand(argv, argc);
         
 
         // 命令执行
-        NormalExcute(argv);
+        if(lastCode != 1) NormalExcute(argv);
     }   
         
     return 0;
