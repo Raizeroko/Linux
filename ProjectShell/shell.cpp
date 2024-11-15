@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 using namespace std;
 
@@ -14,12 +15,18 @@ using namespace std;
 #define ARGC_SIZE 32
 #define EXIT_CODE 44
 
+#define NONE -1
+#define IN_RDIR 0
+#define OUT_PDIR 1
+#define APPEND_RDIR 2
+
 char hostname[32];
 char myenv[LINE_SIZE];
 char pwd[LINE_SIZE];
 int lastCode = 0; 
 extern char **environ;
-
+char* redirfilename = nullptr;
+int redir = NONE;
 
 const char *GetUsrName()
 {
@@ -51,6 +58,42 @@ void GetPWD()
     getcwd(pwd, sizeof(pwd)-1);
 }
 
+void CheckRedir(char *cmd)
+{
+    char *pos = cmd;
+    while(*pos){
+        if(*pos == '>'){
+            if(*(pos+1) == '>'){
+                *pos++ = '\0';
+                *pos = '\0';
+                pos++;
+                while(isspace(*pos)) pos++;
+                redirfilename = pos;
+                redir = APPEND_RDIR;
+            }
+            else{
+                *pos = '\0';
+                pos++;
+                while(isspace(*pos)) pos++;
+                redirfilename = pos;
+                redir = IN_RDIR;
+            }
+        }
+        else if(*pos == '<'){
+            *pos = '\0';
+            pos++;
+            // 跳过空格
+            while(isspace(*pos)) pos++;
+            redirfilename = pos;
+            redir = IN_RDIR;
+        }
+        else{
+
+        }
+        pos++;
+    }
+}
+
 void interaction(char* commandline, int size)
 {
     GetPWD();
@@ -63,6 +106,8 @@ void interaction(char* commandline, int size)
     (void) s;
     // 去除'\n'
     commandline[strlen(commandline)-1] = '\0';
+
+    CheckRedir(commandline);
 
 }
 
@@ -98,27 +143,45 @@ int splitString(char* commandline, char* argv[ARGC_SIZE])
 void NormalExcute(char *argv[])
 {
     pid_t id = fork();
-        if(id < 0){
-            perror("fork error");
-            return;
+    printf("id:%d", id);
+    if(id < 0){
+        perror("fork error");
+        return;
+    }
+    else if(id == 0){
+        printf("child");
+        int fd = 0;
+        if(redir == IN_RDIR){
+            fd = open(redirfilename, O_RDONLY);
+            dup2(fd, 0);
         }
-        else if(id == 0){
-            // 子进程
-            execvpe(argv[0], argv, environ);
-            // 进程代码替换失败
-            exit(EXIT_CODE);
+        else if(redir == OUT_PDIR){
+            fd = open(redirfilename, O_CREAT|O_TRUNC|O_WRONLY);
+            dup2(fd, 1);
         }
-        else{
-            // 父进程
-            int status=0;
-            pid_t rid = waitpid(id, &status, 0);
-            if(rid = id){
-                // 保存最近的退出码
-                lastCode = WEXITSTATUS(status);
-                cout<< "return success" << endl ;
-            }
+        else if(redir == APPEND_RDIR){
+            fd = open(redirfilename, O_CREAT|O_APPEND|O_WRONLY);
+            dup2(fd, 1);
         }
+
+        // 子进程
+        execvpe(argv[0], argv, environ);
+        // 进程代码替换失败
+        exit(EXIT_CODE);
+    }
+    else{
+        // 父进程
+        int status=0;
+        pid_t rid = waitpid(id, &status, 0);
+        if(rid = id){
+            // 保存最近的退出码
+            lastCode = WEXITSTATUS(status);
+            cout<< "return success" << endl ;
+        }
+    }
 }
+
+
 
 // 内建命令由自己完成，不是进程
 int BuildCommand(char* argv[], int& argc)
@@ -154,10 +217,10 @@ int BuildCommand(char* argv[], int& argc)
     if(strcmp(argv[0], "ls") == 0){
         argv[argc++] = "--color";
         argv[argc] = NULL;
-        return 2;
+        return 0;
     }
     
-    return -1;
+    return 0;
     
 }
 
@@ -169,7 +232,10 @@ int main()
 
     int quit = 0;
     while(!quit){
-        // 命令行交互
+        redirfilename = nullptr;
+        redir = NONE;
+
+        // 命令行交互        
         interaction(commandline, LINE_SIZE);
 
         // 分割命令
