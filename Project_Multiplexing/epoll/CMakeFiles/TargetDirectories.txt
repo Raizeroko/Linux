@@ -1,0 +1,3 @@
+/home/Raizeroko/code/Multiplexing/epoll/CMakeFiles/server.dir
+/home/Raizeroko/code/Multiplexing/epoll/CMakeFiles/edit_cache.dir
+/home/Raizeroko/code/Multiplexing/epoll/CMakeFiles/rebuild_cache.dir
